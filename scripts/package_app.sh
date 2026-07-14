@@ -32,6 +32,11 @@ cp "$ROOT_DIR/.build/manual/$APP_NAME" "$MACOS_DIR/$APP_NAME"
 cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 chmod +x "$MACOS_DIR/$APP_NAME"
 
+if [[ -f "$ROOT_DIR/Resources/AppIcon.icns" ]]; then
+    mkdir -p "$CONTENTS_DIR/Resources"
+    cp "$ROOT_DIR/Resources/AppIcon.icns" "$CONTENTS_DIR/Resources/AppIcon.icns"
+fi
+
 plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$CONTENTS_DIR/Info.plist"
 plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$CONTENTS_DIR/Info.plist"
 plutil -replace KeyboardWaiterBuildTimestamp -string "$BUILD_TIMESTAMP" "$CONTENTS_DIR/Info.plist"
