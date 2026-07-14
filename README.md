@@ -93,8 +93,8 @@ Releasing is one step: push a version tag. `.github/workflows/release.yml`
 builds the `.app`, wraps it in a DMG, and publishes it to GitHub Releases.
 
 ```bash
-git tag v0.7.0
-git push origin v0.7.0
+git tag v0.8.0
+git push origin v0.8.0
 ```
 
 That's all that's required — no accounts, no secrets, no local build. The
