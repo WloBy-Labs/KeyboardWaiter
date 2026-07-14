@@ -37,11 +37,25 @@ plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$CONTENTS_DIR/Info.plis
 plutil -replace KeyboardWaiterBuildTimestamp -string "$BUILD_TIMESTAMP" "$CONTENTS_DIR/Info.plist"
 
 if command -v codesign >/dev/null 2>&1; then
-    codesign_args=(--force --deep --timestamp=none)
+    codesign_args=(--force --deep)
 
     if [[ -n "$CODESIGN_IDENTITY" ]]; then
         if [[ -n "$CODESIGN_KEYCHAIN" && -n "$CODESIGN_KEYCHAIN_PASSWORD" ]]; then
             security unlock-keychain -p "$CODESIGN_KEYCHAIN_PASSWORD" "$CODESIGN_KEYCHAIN" >/dev/null 2>&1 || true
+        fi
+
+        # A real identity is expected to be a Developer ID used for
+        # notarized distribution, which requires a hardened runtime and a
+        # secure timestamp. Ad-hoc/local identities skip both.
+        if [[ "${CODESIGN_HARDENED_RUNTIME:-auto}" == "auto" ]]; then
+            case "$CODESIGN_IDENTITY_NAME" in
+                *"Developer ID"*) codesign_args+=(--options runtime --timestamp) ;;
+                *) codesign_args+=(--timestamp=none) ;;
+            esac
+        elif [[ "$CODESIGN_HARDENED_RUNTIME" == "1" ]]; then
+            codesign_args+=(--options runtime --timestamp)
+        else
+            codesign_args+=(--timestamp=none)
         fi
 
         codesign_args+=(--sign "$CODESIGN_IDENTITY")
@@ -52,7 +66,7 @@ if command -v codesign >/dev/null 2>&1; then
 
         echo "Signing $APP_DIR with ${CODESIGN_IDENTITY_NAME} (${CODESIGN_IDENTITY})"
     else
-        codesign_args+=(--sign -)
+        codesign_args+=(--timestamp=none --sign -)
         echo "Warning: using ad-hoc signing. macOS privacy permissions may need to be re-granted after each rebuild."
         echo "Run scripts/bootstrap_local_signing.sh once to create a stable local signing identity."
     fi

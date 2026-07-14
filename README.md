@@ -2,6 +2,33 @@
 
 Native macOS menu bar app that counts keyboard presses plus mouse/trackpad activity, stores hourly aggregates in SQLite, and shows daily totals plus a 24-hour trend.
 
+## Downloads and Installation
+
+Prebuilt DMGs are published on the [Releases page](https://github.com/WloBy-Labs/KeyboardWaiter/releases).
+
+1. Download `KeyboardWaiter-<version>.dmg` and open it.
+2. Drag `KeyboardWaiter.app` onto the `Applications` folder.
+3. Launch it from Applications.
+
+Because releases are currently **not notarized by Apple**, macOS Gatekeeper will
+warn the first time you open the app ("cannot be opened because the developer
+cannot be verified"). To open it:
+
+- Right-click (or Control-click) the app in Applications and choose **Open**, then
+  confirm **Open** in the dialog. You only need to do this once per version.
+- If the app appears "damaged", clear the quarantine flag once:
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/KeyboardWaiter.app
+  ```
+
+On first run the app asks for monitoring consent, then requests **Input
+Monitoring** in System Settings. Grant it under
+`System Settings → Privacy & Security → Input Monitoring`.
+
+> Note: unsigned/ad-hoc builds change their code signature on every release, so
+> macOS may ask you to re-grant Input Monitoring after each update. This goes
+> away with a stable Developer ID (see "Releasing via GitHub Actions" below).
+
 ## Requirements
 
 - macOS 13+
@@ -59,6 +86,46 @@ open dist/KeyboardWaiter.app
 
 The generated app is a development build. On first launch, macOS may require manual approval and Input Monitoring access.
 If a previous unsigned or ad-hoc build left behind a stale `KeyboardWaiter` entry, remove that stale entry once and then enable the newly signed app.
+
+## Releasing via GitHub Actions
+
+Releasing is one step: push a version tag. `.github/workflows/release.yml`
+builds the `.app`, wraps it in a DMG, and publishes it to GitHub Releases.
+
+```bash
+git tag v0.7.0
+git push origin v0.7.0
+```
+
+That's all that's required — no accounts, no secrets, no local build. The
+workflow builds the tagged version, attaches the DMG to the release, and uses
+`release_notes/v<version>.md` as the release body when that file exists
+(otherwise it auto-generates notes). You can also trigger it manually from the
+Actions tab (`workflow_dispatch`) to produce a DMG artifact without publishing.
+
+### Optional: keep Input Monitoring across updates
+
+The default DMG is ad-hoc signed, so macOS may ask users to re-grant Input
+Monitoring after each update. To avoid that, generate one stable self-signed
+certificate (no Apple account needed) and store it as repository secrets:
+
+```bash
+zsh scripts/make_signing_cert.sh   # prints MACOS_CERT_P12 and MACOS_CERT_PASSWORD
+```
+
+Add the two printed values under **Settings → Secrets and variables → Actions**,
+then keep the generated `dist/signing-cert.p12` and its password backed up so
+every release reuses the same identity. The workflow signs with it automatically
+when the secrets are present. (This does not remove the first-launch Gatekeeper
+warning; only a paid Developer ID with notarization does.)
+
+### Optional: remove the Gatekeeper warning (Developer ID)
+
+With an Apple Developer account, add `APPLE_ID`, `APPLE_TEAM_ID`, and
+`APPLE_APP_PASSWORD` secrets alongside a Developer ID certificate in
+`MACOS_CERT_P12`. The workflow then notarizes and staples the app, and it
+installs with no warning. When the certificate name contains "Developer ID", the
+hardened runtime and a secure timestamp are enabled automatically.
 
 ## Stored Data
 

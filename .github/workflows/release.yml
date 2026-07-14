@@ -1,0 +1,129 @@
+name: Release
+
+# Builds KeyboardWaiter into a .app, wraps it in a DMG, and publishes it
+# to GitHub Releases.
+#
+# Signing is progressive:
+#   * No secrets       -> ad-hoc signature (works, but Gatekeeper warns and
+#                         Input Monitoring must be re-granted after updates).
+#   * MACOS_CERT_P12   -> signs with that identity (e.g. a Developer ID).
+#   * APPLE_ID + ...   -> additionally notarizes and staples the app.
+# See README "Downloads and Installation" for the exact secret names.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 0.7.0). Defaults to the tag name."
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version: $VERSION"
+
+      - name: Import signing certificate (optional)
+        id: signing
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ]; then
+            echo "No MACOS_CERT_P12 secret set; using ad-hoc signing."
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PW="$(openssl rand -base64 24)"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PW" "$KEYCHAIN"
+          # Prepend our keychain to the search list so codesign can find it.
+          EXISTING="$(security list-keychains -d user | sed -e 's/[",]//g' -e 's/^[[:space:]]*//')"
+          security list-keychains -d user -s "$KEYCHAIN" ${EXISTING}
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk 'NR==1 {print $2}')"
+          IDENTITY_NAME="$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n '1s/.*"\(.*\)".*/\1/p')"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "identity_name=$IDENTITY_NAME" >> "$GITHUB_OUTPUT"
+          echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
+          echo "Imported signing identity: $IDENTITY_NAME"
+
+      - name: Build and package .app
+        env:
+          CODESIGN_IDENTITY: ${{ steps.signing.outputs.identity }}
+          CODESIGN_IDENTITY_NAME: ${{ steps.signing.outputs.identity_name }}
+          CODESIGN_KEYCHAIN: ${{ steps.signing.outputs.keychain }}
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          chmod +x scripts/*.sh
+          scripts/package_app.sh
+
+      - name: Notarize and staple (optional)
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "Notarization secrets not set; skipping notarization."
+            exit 0
+          fi
+          ditto -c -k --keepParent dist/KeyboardWaiter.app "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait
+          xcrun stapler staple dist/KeyboardWaiter.app
+
+      - name: Create DMG
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/make_dmg.sh
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeyboardWaiter-${{ steps.version.outputs.version }}-dmg
+          path: dist/*.dmg
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          NOTES_FILE="release_notes/v${VERSION}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            NOTES_ARGS=(--notes-file "$NOTES_FILE")
+          else
+            NOTES_ARGS=(--generate-notes)
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/*.dmg \
+            --title "KeyboardWaiter ${VERSION}" \
+            "${NOTES_ARGS[@]}"
