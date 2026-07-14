@@ -64,14 +64,16 @@ jobs:
           # Prepend our keychain to the search list so codesign can find it.
           EXISTING="$(security list-keychains -d user | sed -e 's/[",]//g' -e 's/^[[:space:]]*//')"
           security list-keychains -d user -s "$KEYCHAIN" ${EXISTING}
-          # Grab the numbered identity line (skip header lines), then pull the
-          # 40-char SHA-1 hash and the quoted certificate name from it.
-          LINE="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -E '^[[:space:]]*[0-9]+\)' | head -1)"
+          # Locate the identity WITHOUT -v: a self-signed cert is not a
+          # "valid" (trusted) identity, but codesign can still sign with it.
+          # Grab the numbered line, then pull the 40-char SHA-1 hash and the
+          # quoted certificate name from it.
+          LINE="$(security find-identity -p codesigning "$KEYCHAIN" | grep -E '^[[:space:]]*[0-9]+\)' | head -1)"
           IDENTITY="$(echo "$LINE" | grep -oE '[0-9A-F]{40}' | head -1)"
           IDENTITY_NAME="$(echo "$LINE" | sed -E 's/^[^"]*"([^"]*)".*/\1/')"
           if [ -z "$IDENTITY" ]; then
             echo "Could not find a code-signing identity in the imported keychain:" >&2
-            security find-identity -v -p codesigning "$KEYCHAIN" >&2
+            security find-identity -p codesigning "$KEYCHAIN" >&2
             exit 1
           fi
           echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
