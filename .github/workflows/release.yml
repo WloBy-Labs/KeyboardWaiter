@@ -28,7 +28,7 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve version
         id: version
@@ -116,7 +116,7 @@ jobs:
         run: scripts/make_dmg.sh
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: KeyboardWaiter-${{ steps.version.outputs.version }}-dmg
           path: dist/*.dmg
