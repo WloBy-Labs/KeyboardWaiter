@@ -5,8 +5,12 @@ public enum PointerActivity: String, CaseIterable {
     case leftClick = "pd_left_click"
     case rightClick = "pd_right_click"
     case otherClick = "pd_other_click"
+    case move = "pd_move"
+    case drag = "pd_drag"
     case scrollUp = "pd_scroll_up"
     case scrollDown = "pd_scroll_down"
+    case scrollLeft = "pd_scroll_left"
+    case scrollRight = "pd_scroll_right"
 
     static let prefix = "pd_"
 
@@ -18,6 +22,16 @@ public enum PointerActivity: String, CaseIterable {
         AppLocalizer.pointerActivityName(self)
     }
 
+    /// 指针移动与拖拽是连续事件流，需要先合并成"一次滑动"再计数。
+    var isContinuousMotion: Bool {
+        switch self {
+        case .move, .drag:
+            return true
+        default:
+            return false
+        }
+    }
+
     static func from(eventType: CGEventType, event: CGEvent) -> PointerActivity? {
         switch eventType {
         case .leftMouseDown:
@@ -26,6 +40,10 @@ public enum PointerActivity: String, CaseIterable {
             return .rightClick
         case .otherMouseDown:
             return .otherClick
+        case .mouseMoved:
+            return .move
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            return .drag
         case .scrollWheel:
             return scrollActivity(for: event)
         default:
@@ -44,19 +62,37 @@ public enum PointerActivity: String, CaseIterable {
             return nil
         }
 
-        var delta = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
-        if delta == 0 {
-            delta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+        let vertical = delta(
+            of: event,
+            pointField: .scrollWheelEventPointDeltaAxis1,
+            lineField: .scrollWheelEventDeltaAxis1
+        )
+        let horizontal = delta(
+            of: event,
+            pointField: .scrollWheelEventPointDeltaAxis2,
+            lineField: .scrollWheelEventDeltaAxis2
+        )
+
+        if abs(vertical) >= abs(horizontal) && vertical != 0 {
+            return vertical > 0 ? .scrollUp : .scrollDown
         }
 
-        if delta > 0 {
-            return .scrollUp
-        }
-
-        if delta < 0 {
-            return .scrollDown
+        if horizontal != 0 {
+            return horizontal > 0 ? .scrollLeft : .scrollRight
         }
 
         return nil
+    }
+
+    private static func delta(
+        of event: CGEvent,
+        pointField: CGEventField,
+        lineField: CGEventField
+    ) -> Int64 {
+        let pointDelta = event.getIntegerValueField(pointField)
+        if pointDelta != 0 {
+            return pointDelta
+        }
+        return event.getIntegerValueField(lineField)
     }
 }

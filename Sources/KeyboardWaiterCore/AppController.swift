@@ -44,6 +44,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             self?.handlePointerCapture(activity)
         }
 
+        keyCaptureService.onPointerTravel = { [weak self] units in
+            self?.handlePointerTravel(units)
+        }
+
         keyCaptureService.onTapFailure = { [weak self] in
             DispatchQueue.main.async {
                 self?.rebuildMenu()
@@ -240,6 +244,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         todayPointerTotalCache += 1
         statsStore.increment(keyID: activity.activityID, at: Date())
         refreshTitle()
+        refreshKeyboardWindow()
+    }
+
+    private func handlePointerTravel(_ units: Int) {
+        statsStore.increment(keyID: PointerTravel.keyID, by: units, at: Date())
         refreshKeyboardWindow()
     }
 

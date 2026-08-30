@@ -18,7 +18,8 @@ final class HourlyBucketTests: XCTestCase {
         let bucket = HourlyBucket.bucketStart(for: date)
         let roundedDate = HourlyBucket.date(for: bucket)
 
-        XCTAssertEqual(roundedDate.timeIntervalSince1970, 1_774_547_600)
+        // 2026-03-26 17:00:00 UTC，即事件时间 17:42:18 向下取整到整点。
+        XCTAssertEqual(roundedDate.timeIntervalSince1970, 1_774_544_400)
     }
 
     func testLast24HoursRangeContains24Buckets() {

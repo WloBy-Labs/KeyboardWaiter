@@ -43,7 +43,7 @@ Monitoring** in System Settings. Grant it under
 ```
 
 This path works with the macOS Command Line Tools that are available in the current environment.
-If you later install full Xcode, you can also try `swift build` / `swift test`.
+`swift build` / `swift test` also work.
 
 The app runs as a menu bar utility. The menu bar title shows today's keyboard total.
 Use the menu item `Open Input View` to open a visual window with a keyboard heatmap, mouse/trackpad counters, and a year/month/day calendar grid.
@@ -57,6 +57,10 @@ Use `Export Statistics...` and `Import Statistics...` to move aggregated hourly 
 The codebase is now being aligned with a sandboxed Mac App Store build:
 
 - keyboard plus pointer monitoring both use `CGEventTap`
+- pointer monitoring covers clicks, cursor moves, drags, and scrolling in all four directions;
+  continuous moves/drags are collapsed into one count per stroke (0.4s idle gap)
+- a `Pointer Travel` card adds up how far the cursor moved; it is stored under a separate
+  `mt_` key prefix so distance never mixes into the keyboard/pointer action totals
 - monitoring starts only after explicit in-app consent
 - the app requests `Input Monitoring` through `CGRequestListenEventAccess()`
 - legacy development data is copied into the sandbox container on first launch when needed

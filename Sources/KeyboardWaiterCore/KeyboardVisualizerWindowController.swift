@@ -50,9 +50,18 @@ final class KeyboardVisualizerWindowController: NSWindowController {
     private let pointerPageView = NSView()
     private let calendarPageView = NSView()
     private var pointerCardViews: [String: PointerStatCardView] = [:]
+    private let pointerTravelCardView = PointerStatCardView(title: AppLocalizer.pointerTravelTitle)
     private var calendarGranularity: CalendarGranularity = .month
     private var calendarReferenceDate = Date()
     private var selectedPageIndex = 0
+
+    private static let pointerCardColumns = 5
+    private static let pointerCardHeight: CGFloat = 110
+    private static var pointerCardCount: Int { PointerActivity.allCases.count + 1 }
+    private static var pointerStackHeight: CGFloat {
+        let rows = CGFloat((pointerCardCount + pointerCardColumns - 1) / pointerCardColumns)
+        return rows * pointerCardHeight + (rows - 1) * 10
+    }
 
     init(statsStore: StatsStore) {
         self.statsStore = statsStore
@@ -116,6 +125,12 @@ final class KeyboardVisualizerWindowController: NSWindowController {
             pointerCardViews[activity.activityID]?.setTitle(activity.displayName)
             pointerCardViews[activity.activityID]?.update(count: pointerCountMap.countsByKeyID[activity.activityID] ?? 0)
         }
+
+        let travelUnits = statsStore
+            .keyCountMap(in: dateInterval, category: .pointerTravel)
+            .countsByKeyID[PointerTravel.keyID] ?? 0
+        pointerTravelCardView.setTitle(AppLocalizer.pointerTravelTitle)
+        pointerTravelCardView.update(text: AppLocalizer.pointerTravelValue(units: travelUnits))
 
         refreshCalendarData()
     }
@@ -207,14 +222,35 @@ final class KeyboardVisualizerWindowController: NSWindowController {
         pointerSectionLabel.textColor = NSColor(calibratedRed: 0.28, green: 0.25, blue: 0.18, alpha: 1.0)
 
         pointerStackView.translatesAutoresizingMaskIntoConstraints = false
-        pointerStackView.orientation = .horizontal
-        pointerStackView.alignment = .centerY
+        pointerStackView.orientation = .vertical
+        pointerStackView.alignment = .leading
         pointerStackView.distribution = .fillEqually
         pointerStackView.spacing = 10
 
-        for activity in PointerActivity.allCases {
-            if let cardView = pointerCardViews[activity.activityID] {
-                pointerStackView.addArrangedSubview(cardView)
+        let cardViews = PointerActivity.allCases.compactMap { pointerCardViews[$0.activityID] } + [pointerTravelCardView]
+
+        var currentRow: NSStackView?
+        for (index, cardView) in cardViews.enumerated() {
+            if index % Self.pointerCardColumns == 0 {
+                let row = NSStackView()
+                row.orientation = .horizontal
+                row.alignment = .centerY
+                row.distribution = .fillEqually
+                row.spacing = 10
+                pointerStackView.addArrangedSubview(row)
+                row.leadingAnchor.constraint(equalTo: pointerStackView.leadingAnchor).isActive = true
+                row.trailingAnchor.constraint(equalTo: pointerStackView.trailingAnchor).isActive = true
+                currentRow = row
+            }
+
+            currentRow?.addArrangedSubview(cardView)
+        }
+
+        // 最后一行补空视图，保证每张卡片宽度一致。
+        let trailingSlots = cardViews.count % Self.pointerCardColumns
+        if trailingSlots != 0 {
+            for _ in 0..<(Self.pointerCardColumns - trailingSlots) {
+                currentRow?.addArrangedSubview(NSView())
             }
         }
 
@@ -348,7 +384,7 @@ final class KeyboardVisualizerWindowController: NSWindowController {
             pointerStackView.topAnchor.constraint(equalTo: pointerSectionLabel.bottomAnchor, constant: 8),
             pointerStackView.leadingAnchor.constraint(equalTo: pointerPageView.leadingAnchor, constant: 6),
             pointerStackView.trailingAnchor.constraint(equalTo: pointerPageView.trailingAnchor, constant: -6),
-            pointerStackView.heightAnchor.constraint(equalToConstant: 120),
+            pointerStackView.heightAnchor.constraint(equalToConstant: Self.pointerStackHeight),
 
             calendarSectionLabel.topAnchor.constraint(equalTo: calendarPageView.topAnchor, constant: 6),
             calendarSectionLabel.leadingAnchor.constraint(equalTo: calendarPageView.leadingAnchor, constant: 6),
