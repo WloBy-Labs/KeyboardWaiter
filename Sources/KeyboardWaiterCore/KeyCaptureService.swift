@@ -12,10 +12,16 @@ public final class KeyCaptureService {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var pressedModifierKeyCodes = Set<UInt16>()
-    private var motionCoalescer = PointerMotionCoalescer()
+    private var motionCoalescer = PointerMotionCoalescer(idleGap: PointerSettings.motionIdleGap)
+    private var dragTracker = PointerDragTracker()
     private var travelAccumulator = PointerTravelAccumulator()
 
     public init() {}
+
+    /// 设置界面改动后立即生效，不需要重启监听。
+    public func updateMotionIdleGap(_ idleGap: TimeInterval) {
+        motionCoalescer.idleGap = idleGap
+    }
 
     deinit {
         stop()
@@ -53,6 +59,7 @@ public final class KeyCaptureService {
         pressedModifierKeyCodes.removeAll()
         motionCoalescer.reset()
         travelAccumulator.reset()
+        dragTracker.reset()
         isRunning = false
     }
 
@@ -67,6 +74,9 @@ public final class KeyCaptureService {
         let leftDragMask = CGEventMask(1 << CGEventType.leftMouseDragged.rawValue)
         let rightDragMask = CGEventMask(1 << CGEventType.rightMouseDragged.rawValue)
         let otherDragMask = CGEventMask(1 << CGEventType.otherMouseDragged.rawValue)
+        let leftMouseUpMask = CGEventMask(1 << CGEventType.leftMouseUp.rawValue)
+        let rightMouseUpMask = CGEventMask(1 << CGEventType.rightMouseUp.rawValue)
+        let otherMouseUpMask = CGEventMask(1 << CGEventType.otherMouseUp.rawValue)
         let callbackPointer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
 
         return CGEvent.tapCreate(
@@ -74,7 +84,9 @@ public final class KeyCaptureService {
             place: .headInsertEventTap,
             options: .listenOnly,
             eventsOfInterest: keyDownMask | flagsChangedMask | leftMouseDownMask | rightMouseDownMask
-                | otherMouseDownMask | scrollWheelMask | mouseMovedMask | leftDragMask | rightDragMask | otherDragMask,
+                | otherMouseDownMask | scrollWheelMask | mouseMovedMask
+                | leftDragMask | rightDragMask | otherDragMask
+                | leftMouseUpMask | rightMouseUpMask | otherMouseUpMask,
             callback: Self.callback,
             userInfo: callbackPointer
         )
@@ -92,18 +104,33 @@ public final class KeyCaptureService {
             let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
             handleModifierChange(keyCode: keyCode, flags: event.flags)
 
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel,
-             .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            dragTracker.pressBegan(button: event.getIntegerValueField(.mouseEventButtonNumber))
             guard let activity = PointerActivity.from(eventType: eventType, event: event) else { return }
-            if activity.isContinuousMotion {
-                accumulateTravel(from: event)
+            publish(pointerActivity: activity)
 
-                let now = ProcessInfo.processInfo.systemUptime
-                guard motionCoalescer.shouldCount(activity, at: now) else { return }
-            }
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            dragTracker.pressEnded(button: event.getIntegerValueField(.mouseEventButtonNumber))
+
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            accumulateTravel(from: event)
+            guard dragTracker.shouldCountDrag(button: event.getIntegerValueField(.mouseEventButtonNumber)) else { return }
+            publish(pointerActivity: .drag)
+
+        case .mouseMoved:
+            accumulateTravel(from: event)
+            guard motionCoalescer.shouldCount(.move, at: ProcessInfo.processInfo.systemUptime) else { return }
+            publish(pointerActivity: .move)
+
+        case .scrollWheel:
+            guard let activity = PointerActivity.from(eventType: eventType, event: event) else { return }
             publish(pointerActivity: activity)
 
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            // 事件流断过，按下/松开可能丢了，状态重新来过。
+            motionCoalescer.reset()
+            dragTracker.reset()
+
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             } else {

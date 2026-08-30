@@ -22,16 +22,6 @@ public enum PointerActivity: String, CaseIterable {
         AppLocalizer.pointerActivityName(self)
     }
 
-    /// 指针移动与拖拽是连续事件流，需要先合并成"一次滑动"再计数。
-    var isContinuousMotion: Bool {
-        switch self {
-        case .move, .drag:
-            return true
-        default:
-            return false
-        }
-    }
-
     static func from(eventType: CGEventType, event: CGEvent) -> PointerActivity? {
         switch eventType {
         case .leftMouseDown:
