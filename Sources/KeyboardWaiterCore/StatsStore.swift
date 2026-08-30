@@ -5,6 +5,7 @@ public enum StoredInputCategory {
     case all
     case keyboard
     case pointer
+    case pointerTravel
 
     fileprivate var keyIDLikePattern: String? {
         switch self {
@@ -14,9 +15,24 @@ public enum StoredInputCategory {
             return "kc_%"
         case .pointer:
             return "\(PointerActivity.prefix)%"
+        case .pointerTravel:
+            return "\(PointerTravel.keyIDPrefix)%"
+        }
+    }
+
+    /// 位移是距离不是次数，除非专门查它，否则要从总计里排除。
+    fileprivate var excludesMetrics: Bool {
+        switch self {
+        case .pointerTravel:
+            return false
+        case .all, .keyboard, .pointer:
+            return true
         }
     }
 }
+
+/// 排除 mt_ 指标行的 SQL 片段。前缀是编译期常量，不需要绑定参数。
+private let metricExclusionClause = "key_id NOT LIKE '\(PointerTravel.keyIDPrefix)%'"
 
 public struct KeyCount: Equatable {
     public let keyID: String
@@ -126,16 +142,17 @@ public final class StatsStore {
         sqlite3_close(db)
     }
 
-    public func increment(keyID: String, at date: Date) {
+    public func increment(keyID: String, by amount: Int = 1, at date: Date) {
+        guard amount > 0 else { return }
         let bucket = HourlyBucket.bucketStart(for: date)
 
         queue.async { [db] in
             var statement: OpaquePointer?
             let sql = """
             INSERT INTO hourly_counts (hour_bucket, key_id, count)
-            VALUES (?, ?, 1)
+            VALUES (?, ?, ?)
             ON CONFLICT(hour_bucket, key_id)
-            DO UPDATE SET count = count + 1;
+            DO UPDATE SET count = count + excluded.count;
             """
 
             guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -146,6 +163,7 @@ public final class StatsStore {
 
             sqlite3_bind_int64(statement, 1, bucket)
             sqlite3_bind_text(statement, 2, keyID, -1, sqliteTransient)
+            sqlite3_bind_int64(statement, 3, Int64(amount))
 
             _ = sqlite3_step(statement)
         }
@@ -167,6 +185,10 @@ public final class StatsStore {
 
             if category.keyIDLikePattern != nil {
                 sql += " AND key_id LIKE ?"
+            }
+
+            if category.excludesMetrics {
+                sql += " AND " + metricExclusionClause
             }
 
             sql += ";"
@@ -215,6 +237,9 @@ public final class StatsStore {
             }
             if category.keyIDLikePattern != nil {
                 clauses.append("key_id LIKE ?")
+            }
+            if category.excludesMetrics {
+                clauses.append(metricExclusionClause)
             }
 
             if !clauses.isEmpty {
@@ -278,6 +303,7 @@ public final class StatsStore {
             SELECT hour_bucket, SUM(count) AS total_count
             FROM hourly_counts
             WHERE hour_bucket >= ? AND hour_bucket < ?
+              AND \(metricExclusionClause)
             GROUP BY hour_bucket
             ORDER BY hour_bucket ASC;
             """

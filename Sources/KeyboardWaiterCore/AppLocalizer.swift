@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-enum AppLocalizer {
+public enum AppLocalizer {
     private static var language: AppLanguage {
         AppLanguageStore.current
     }
@@ -15,7 +15,7 @@ enum AppLocalizer {
         }
     }
 
-    static var startupFailureTitle: String {
+    public static var startupFailureTitle: String {
         switch language {
         case .english:
             return "Keyboard Waiter failed to start"
@@ -486,20 +486,62 @@ enum AppLocalizer {
             return "Right Click"
         case (.english, .otherClick):
             return "Other Click"
+        case (.english, .move):
+            return "Pointer Move"
+        case (.english, .drag):
+            return "Drag"
         case (.english, .scrollUp):
             return "Scroll Up"
         case (.english, .scrollDown):
             return "Scroll Down"
+        case (.english, .scrollLeft):
+            return "Scroll Left"
+        case (.english, .scrollRight):
+            return "Scroll Right"
         case (.simplifiedChinese, .leftClick):
             return "左键点击"
         case (.simplifiedChinese, .rightClick):
             return "右键点击"
         case (.simplifiedChinese, .otherClick):
             return "其他点击"
+        case (.simplifiedChinese, .move):
+            return "指针移动"
+        case (.simplifiedChinese, .drag):
+            return "拖拽移动"
         case (.simplifiedChinese, .scrollUp):
             return "向上滚动"
         case (.simplifiedChinese, .scrollDown):
             return "向下滚动"
+        case (.simplifiedChinese, .scrollLeft):
+            return "向左滚动"
+        case (.simplifiedChinese, .scrollRight):
+            return "向右滚动"
+        }
+    }
+
+    static var pointerTravelTitle: String {
+        switch language {
+        case .english:
+            return "Pointer Travel"
+        case .simplifiedChinese:
+            return "指针行程"
+        }
+    }
+
+    static func pointerTravelValue(units: Int) -> String {
+        let meters = PointerTravel.meters(forUnits: units)
+
+        switch language {
+        case .english:
+            if meters >= 1000 {
+                return String(format: "%.2f km", meters / 1000)
+            }
+            return String(format: meters >= 10 ? "%.0f m" : "%.1f m", meters)
+        case .simplifiedChinese:
+            if meters >= 1000 {
+                return String(format: "%.2f 公里", meters / 1000)
+            }
+            return String(format: meters >= 10 ? "%.0f 米" : "%.1f 米", meters)
         }
     }
 

@@ -4,6 +4,7 @@ import Foundation
 public final class KeyCaptureService {
     public var onKeyCapture: ((KeyDescriptor) -> Void)?
     public var onPointerCapture: ((PointerActivity) -> Void)?
+    public var onPointerTravel: ((Int) -> Void)?
     public var onTapFailure: (() -> Void)?
 
     public private(set) var isRunning = false
@@ -11,6 +12,8 @@ public final class KeyCaptureService {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var pressedModifierKeyCodes = Set<UInt16>()
+    private var motionCoalescer = PointerMotionCoalescer()
+    private var travelAccumulator = PointerTravelAccumulator()
 
     public init() {}
 
@@ -48,6 +51,8 @@ public final class KeyCaptureService {
         }
 
         pressedModifierKeyCodes.removeAll()
+        motionCoalescer.reset()
+        travelAccumulator.reset()
         isRunning = false
     }
 
@@ -58,13 +63,18 @@ public final class KeyCaptureService {
         let rightMouseDownMask = CGEventMask(1 << CGEventType.rightMouseDown.rawValue)
         let otherMouseDownMask = CGEventMask(1 << CGEventType.otherMouseDown.rawValue)
         let scrollWheelMask = CGEventMask(1 << CGEventType.scrollWheel.rawValue)
+        let mouseMovedMask = CGEventMask(1 << CGEventType.mouseMoved.rawValue)
+        let leftDragMask = CGEventMask(1 << CGEventType.leftMouseDragged.rawValue)
+        let rightDragMask = CGEventMask(1 << CGEventType.rightMouseDragged.rawValue)
+        let otherDragMask = CGEventMask(1 << CGEventType.otherMouseDragged.rawValue)
         let callbackPointer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
 
         return CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .listenOnly,
-            eventsOfInterest: keyDownMask | flagsChangedMask | leftMouseDownMask | rightMouseDownMask | otherMouseDownMask | scrollWheelMask,
+            eventsOfInterest: keyDownMask | flagsChangedMask | leftMouseDownMask | rightMouseDownMask
+                | otherMouseDownMask | scrollWheelMask | mouseMovedMask | leftDragMask | rightDragMask | otherDragMask,
             callback: Self.callback,
             userInfo: callbackPointer
         )
@@ -82,8 +92,15 @@ public final class KeyCaptureService {
             let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
             handleModifierChange(keyCode: keyCode, flags: event.flags)
 
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel,
+             .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             guard let activity = PointerActivity.from(eventType: eventType, event: event) else { return }
+            if activity.isContinuousMotion {
+                accumulateTravel(from: event)
+
+                let now = ProcessInfo.processInfo.systemUptime
+                guard motionCoalescer.shouldCount(activity, at: now) else { return }
+            }
             publish(pointerActivity: activity)
 
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
@@ -101,6 +118,17 @@ public final class KeyCaptureService {
         let descriptor = KeyTranslator.descriptor(for: keyCode)
         DispatchQueue.main.async { [weak self] in
             self?.onKeyCapture?(descriptor)
+        }
+    }
+
+    private func accumulateTravel(from event: CGEvent) {
+        let deltaX = Double(event.getIntegerValueField(.mouseEventDeltaX))
+        let deltaY = Double(event.getIntegerValueField(.mouseEventDeltaY))
+        let units = travelAccumulator.add(deltaX: deltaX, deltaY: deltaY)
+        guard units > 0 else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.onPointerTravel?(units)
         }
     }
 

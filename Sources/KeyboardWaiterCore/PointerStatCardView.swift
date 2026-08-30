@@ -43,4 +43,8 @@ final class PointerStatCardView: NSView {
     func update(count: Int) {
         countField.stringValue = CountFormatter.abbreviated(count)
     }
+
+    func update(text: String) {
+        countField.stringValue = text
+    }
 }
