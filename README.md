@@ -46,7 +46,7 @@ This path works with the macOS Command Line Tools that are available in the curr
 `swift build` / `swift test` also work.
 
 The app runs as a menu bar utility. The menu bar title shows today's keyboard total.
-Use the menu item `Open Input View` to open a visual window with a keyboard heatmap, mouse/trackpad counters, and a year/month/day calendar grid.
+Use the menu item `Open Input View` to open a visual window with a keyboard heatmap, mouse/trackpad counters, a per-app breakdown of where the input happened, and a year/month/day calendar grid.
 The menu also shows the packaged app version and build timestamp so you can confirm which build is running.
 The menu includes a `Settings...` item (also `Cmd+,`) for the pointer move stroke gap, and a `Language` switch. English is the default; Chinese can be enabled at runtime.
 The app now asks for explicit monitoring consent before enabling global input counting.
@@ -64,6 +64,9 @@ The codebase is now being aligned with a sandboxed Mac App Store build:
   `Settings...` in the menu bar)
 - a `Pointer Travel` card adds up how far the cursor moved; it is stored under a separate
   `mt_` key prefix so distance never mixes into the keyboard/pointer action totals
+- every count is attributed to the frontmost app at the time (`app_id` column, tracked via
+  `NSWorkspace` activation notifications rather than a per-event query); rows recorded before
+  0.12.0 are attributed to `unknown`
 - monitoring starts only after explicit in-app consent
 - the app requests `Input Monitoring` through `CGRequestListenEventAccess()`
 - legacy development data is copied into the sandbox container on first launch when needed

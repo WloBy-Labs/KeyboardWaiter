@@ -11,6 +11,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private let appMetadata = AppMetadata.current
     private let permissionService = PermissionService()
     private let keyCaptureService = KeyCaptureService()
+    private let frontmostAppTracker = FrontmostAppTracker()
     private let statsStore: StatsStore
     private let menu = NSMenu()
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -255,7 +256,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func handleKeyCapture(_ descriptor: KeyDescriptor) {
         rolloverIfNeeded(referenceDate: Date())
         todayTotalCache += 1
-        statsStore.increment(keyID: descriptor.keyID, at: Date())
+        statsStore.increment(keyID: descriptor.keyID, appID: frontmostAppTracker.currentAppID, at: Date())
         refreshTitle()
         refreshKeyboardWindow()
     }
@@ -263,13 +264,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func handlePointerCapture(_ activity: PointerActivity) {
         rolloverIfNeeded(referenceDate: Date())
         todayPointerTotalCache += 1
-        statsStore.increment(keyID: activity.activityID, at: Date())
+        statsStore.increment(keyID: activity.activityID, appID: frontmostAppTracker.currentAppID, at: Date())
         refreshTitle()
         refreshKeyboardWindow()
     }
 
     private func handlePointerTravel(_ units: Int) {
-        statsStore.increment(keyID: PointerTravel.keyID, by: units, at: Date())
+        statsStore.increment(keyID: PointerTravel.keyID, by: units, appID: frontmostAppTracker.currentAppID, at: Date())
         refreshKeyboardWindow()
     }
 
@@ -280,6 +281,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     private func refreshPeriodicState() {
+        frontmostAppTracker.refresh()
         rolloverIfNeeded(referenceDate: Date())
         refreshMonitoringState()
         refreshTitle()
@@ -338,6 +340,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         menu.addItem(.separator())
         let pointerCountMap = statsStore.keyCountMap(in: todayRange, category: .pointer)
         addDisabledItem(AppLocalizer.pointerTodayTotal(pointerCountMap.total))
+
+        let todayAppCounts = statsStore.appCounts(in: todayRange)
+        if let topApp = todayAppCounts.first, topApp.appID != AppIdentity.unknownID {
+            let overall = todayAppCounts.reduce(0) { $0 + $1.total }
+            addDisabledItem(
+                AppLocalizer.menuTopApp(
+                    AppIdentity.displayName(for: topApp.appID),
+                    share: overall > 0 ? Double(topApp.total) / Double(overall) : 0
+                )
+            )
+        }
 
         menu.addItem(.separator())
 

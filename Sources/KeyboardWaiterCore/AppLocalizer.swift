@@ -684,6 +684,65 @@ public enum AppLocalizer {
         }
     }
 
+    static var appsPageTitle: String {
+        switch language {
+        case .english:
+            return "Apps"
+        case .simplifiedChinese:
+            return "应用"
+        }
+    }
+
+    static var appsSectionTitle: String {
+        switch language {
+        case .english:
+            return "Where the input happened"
+        case .simplifiedChinese:
+            return "输入发生在哪些应用里"
+        }
+    }
+
+    static var unknownAppName: String {
+        switch language {
+        case .english:
+            return "Unknown / before 0.12"
+        case .simplifiedChinese:
+            return "未知 / 0.12 之前"
+        }
+    }
+
+    static var noAppActivityRecorded: String {
+        switch language {
+        case .english:
+            return "No input recorded in this range yet."
+        case .simplifiedChinese:
+            return "这段时间还没有输入记录。"
+        }
+    }
+
+    static func appBreakdownRow(share: Double, keyboardCount: Int, pointerCount: Int) -> String {
+        let percent = String(format: "%.0f%%", share * 100)
+        let keys = CountFormatter.abbreviated(keyboardCount)
+        let pointer = CountFormatter.abbreviated(pointerCount)
+
+        switch language {
+        case .english:
+            return "\(percent)  ⌨️ \(keys)  🖱️ \(pointer)"
+        case .simplifiedChinese:
+            return "\(percent)  ⌨️ \(keys)  🖱️ \(pointer)"
+        }
+    }
+
+    static func menuTopApp(_ name: String, share: Double) -> String {
+        let percent = String(format: "%.0f%%", share * 100)
+        switch language {
+        case .english:
+            return "Top app: \(name) \(percent)"
+        case .simplifiedChinese:
+            return "主力应用：\(name) \(percent)"
+        }
+    }
+
     static var pointerPageTitle: String {
         switch language {
         case .english:
