@@ -44,6 +44,15 @@ public struct HourCount: Equatable {
     public let total: Int
 }
 
+/// 一个应用在某段时间里的输入量。
+public struct AppCount: Equatable {
+    public let appID: String
+    public let keyboardCount: Int
+    public let pointerCount: Int
+
+    public var total: Int { keyboardCount + pointerCount }
+}
+
 public struct KeyCountMap: Equatable {
     public let countsByKeyID: [String: Int]
     public let total: Int
@@ -69,6 +78,23 @@ private struct StatsSnapshotRecord: Codable {
     let hourBucket: Int64
     let keyID: String
     let count: Int
+    /// v1 的快照没有这一列，导入时归到 unknown。
+    let appID: String
+
+    init(hourBucket: Int64, keyID: String, count: Int, appID: String) {
+        self.hourBucket = hourBucket
+        self.keyID = keyID
+        self.count = count
+        self.appID = appID
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        hourBucket = try container.decode(Int64.self, forKey: .hourBucket)
+        keyID = try container.decode(String.self, forKey: .keyID)
+        count = try container.decode(Int.self, forKey: .count)
+        appID = try container.decodeIfPresent(String.self, forKey: .appID) ?? AppIdentity.unknownID
+    }
 }
 
 enum StatsStoreError: LocalizedError {
@@ -89,6 +115,8 @@ enum StatsStoreError: LocalizedError {
 }
 
 public final class StatsStore {
+    public static let snapshotSchemaVersion = 2
+
     public let dataDirectoryURL: URL
     public let databaseURL: URL
 
@@ -130,11 +158,13 @@ public final class StatsStore {
                 CREATE TABLE IF NOT EXISTS hourly_counts (
                     hour_bucket INTEGER NOT NULL,
                     key_id TEXT NOT NULL,
+                    app_id TEXT NOT NULL DEFAULT '\(AppIdentity.unknownID)',
                     count INTEGER NOT NULL DEFAULT 0,
-                    PRIMARY KEY (hour_bucket, key_id)
+                    PRIMARY KEY (hour_bucket, key_id, app_id)
                 );
                 """
             )
+            try migrateToAppDimensionIfNeeded()
         }
     }
 
@@ -142,16 +172,22 @@ public final class StatsStore {
         sqlite3_close(db)
     }
 
-    public func increment(keyID: String, by amount: Int = 1, at date: Date) {
+    public func increment(
+        keyID: String,
+        by amount: Int = 1,
+        appID: String = AppIdentity.unknownID,
+        at date: Date
+    ) {
         guard amount > 0 else { return }
         let bucket = HourlyBucket.bucketStart(for: date)
+        let resolvedAppID = appID.isEmpty ? AppIdentity.unknownID : appID
 
         queue.async { [db] in
             var statement: OpaquePointer?
             let sql = """
-            INSERT INTO hourly_counts (hour_bucket, key_id, count)
-            VALUES (?, ?, ?)
-            ON CONFLICT(hour_bucket, key_id)
+            INSERT INTO hourly_counts (hour_bucket, key_id, app_id, count)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(hour_bucket, key_id, app_id)
             DO UPDATE SET count = count + excluded.count;
             """
 
@@ -163,7 +199,8 @@ public final class StatsStore {
 
             sqlite3_bind_int64(statement, 1, bucket)
             sqlite3_bind_text(statement, 2, keyID, -1, sqliteTransient)
-            sqlite3_bind_int64(statement, 3, Int64(amount))
+            sqlite3_bind_text(statement, 3, resolvedAppID, -1, sqliteTransient)
+            sqlite3_bind_int64(statement, 4, Int64(amount))
 
             _ = sqlite3_step(statement)
         }
@@ -295,6 +332,56 @@ public final class StatsStore {
         return KeyCountMap(countsByKeyID: countsByKeyID, total: total)
     }
 
+    /// 按应用汇总键盘和指针的次数，多到少排序。位移指标照例排除在外。
+    public func appCounts(in range: DateInterval?) -> [AppCount] {
+        queue.sync {
+            var statement: OpaquePointer?
+            var sql = """
+            SELECT app_id,
+                   SUM(CASE WHEN key_id LIKE 'kc_%' THEN count ELSE 0 END) AS keyboard_count,
+                   SUM(CASE WHEN key_id LIKE '\(PointerActivity.prefix)%' THEN count ELSE 0 END) AS pointer_count
+            FROM hourly_counts
+            WHERE \(metricExclusionClause)
+            """
+
+            if range != nil {
+                sql += " AND hour_bucket >= ? AND hour_bucket < ?"
+            }
+
+            sql += """
+             GROUP BY app_id
+             HAVING keyboard_count + pointer_count > 0
+             ORDER BY keyboard_count + pointer_count DESC, app_id ASC;
+            """
+
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+                return []
+            }
+
+            defer { sqlite3_finalize(statement) }
+
+            if let range {
+                sqlite3_bind_int64(statement, 1, HourlyBucket.bucketStart(for: range.start))
+                sqlite3_bind_int64(statement, 2, HourlyBucket.bucketStart(forUnixTime: range.end.timeIntervalSince1970 - 0.001) + HourlyBucket.secondsPerHour)
+            }
+
+            var result: [AppCount] = []
+
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let appPointer = sqlite3_column_text(statement, 0) else { continue }
+                result.append(
+                    AppCount(
+                        appID: String(cString: appPointer),
+                        keyboardCount: Int(sqlite3_column_int64(statement, 1)),
+                        pointerCount: Int(sqlite3_column_int64(statement, 2))
+                    )
+                )
+            }
+
+            return result
+        }
+    }
+
     public func hourlySeries(in range: DateInterval) -> [HourCount] {
         queue.sync {
             var totalsByBucket: [Int64: Int] = [:]
@@ -348,9 +435,9 @@ public final class StatsStore {
         let snapshot = try queue.sync {
             var statement: OpaquePointer?
             let sql = """
-            SELECT hour_bucket, key_id, count
+            SELECT hour_bucket, key_id, count, app_id
             FROM hourly_counts
-            ORDER BY hour_bucket ASC, key_id ASC;
+            ORDER BY hour_bucket ASC, key_id ASC, app_id ASC;
             """
 
             guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -362,16 +449,18 @@ public final class StatsStore {
             var records: [StatsSnapshotRecord] = []
             while sqlite3_step(statement) == SQLITE_ROW {
                 guard let keyPointer = sqlite3_column_text(statement, 1) else { continue }
+                let appID = sqlite3_column_text(statement, 3).map { String(cString: $0) } ?? AppIdentity.unknownID
                 records.append(
                     StatsSnapshotRecord(
                         hourBucket: sqlite3_column_int64(statement, 0),
                         keyID: String(cString: keyPointer),
-                        count: Int(sqlite3_column_int64(statement, 2))
+                        count: Int(sqlite3_column_int64(statement, 2)),
+                        appID: appID
                     )
                 )
             }
 
-            return StatsSnapshot(schemaVersion: 1, exportedAt: Date(), records: records)
+            return StatsSnapshot(schemaVersion: Self.snapshotSchemaVersion, exportedAt: Date(), records: records)
         }
 
         let encoder = JSONEncoder()
@@ -396,7 +485,8 @@ public final class StatsStore {
             throw StatsStoreError.invalidSnapshot(error.localizedDescription)
         }
 
-        guard snapshot.schemaVersion == 1 else {
+        // v1 的快照没有 app_id，仍然可以导入，全部归到 unknown。
+        guard snapshot.schemaVersion <= Self.snapshotSchemaVersion else {
             throw StatsStoreError.invalidSnapshot("Unsupported schema version \(snapshot.schemaVersion)")
         }
 
@@ -426,9 +516,9 @@ public final class StatsStore {
     private func importRecords(_ records: [StatsSnapshotRecord]) throws {
         var statement: OpaquePointer?
         let sql = """
-        INSERT INTO hourly_counts (hour_bucket, key_id, count)
-        VALUES (?, ?, ?)
-        ON CONFLICT(hour_bucket, key_id)
+        INSERT INTO hourly_counts (hour_bucket, key_id, app_id, count)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(hour_bucket, key_id, app_id)
         DO UPDATE SET count = count + excluded.count;
         """
 
@@ -441,7 +531,8 @@ public final class StatsStore {
         for record in records {
             sqlite3_bind_int64(statement, 1, record.hourBucket)
             sqlite3_bind_text(statement, 2, record.keyID, -1, sqliteTransient)
-            sqlite3_bind_int64(statement, 3, Int64(record.count))
+            sqlite3_bind_text(statement, 3, record.appID, -1, sqliteTransient)
+            sqlite3_bind_int64(statement, 4, Int64(record.count))
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw StatsStoreError.execute(String(cString: sqlite3_errmsg(db)))
@@ -450,6 +541,56 @@ public final class StatsStore {
             sqlite3_reset(statement)
             sqlite3_clear_bindings(statement)
         }
+    }
+
+    /// 0.11.x 之前的表没有 app_id，主键也只有 (hour_bucket, key_id)。
+    /// SQLite 改不了主键，只能重建表；老数据整体归到 unknown 这个应用下。
+    private func migrateToAppDimensionIfNeeded() throws {
+        guard !tableHasAppIDColumn() else { return }
+
+        try execute(sql: "BEGIN IMMEDIATE TRANSACTION;")
+
+        do {
+            try execute(
+                sql: """
+                CREATE TABLE hourly_counts_migrated (
+                    hour_bucket INTEGER NOT NULL,
+                    key_id TEXT NOT NULL,
+                    app_id TEXT NOT NULL DEFAULT '\(AppIdentity.unknownID)',
+                    count INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (hour_bucket, key_id, app_id)
+                );
+                """
+            )
+            try execute(
+                sql: """
+                INSERT INTO hourly_counts_migrated (hour_bucket, key_id, app_id, count)
+                SELECT hour_bucket, key_id, '\(AppIdentity.unknownID)', count FROM hourly_counts;
+                """
+            )
+            try execute(sql: "DROP TABLE hourly_counts;")
+            try execute(sql: "ALTER TABLE hourly_counts_migrated RENAME TO hourly_counts;")
+            try execute(sql: "COMMIT;")
+        } catch {
+            _ = sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+            throw error
+        }
+    }
+
+    private func tableHasAppIDColumn() -> Bool {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(hourly_counts);", -1, &statement, nil) == SQLITE_OK else {
+            return false
+        }
+
+        defer { sqlite3_finalize(statement) }
+
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let namePointer = sqlite3_column_text(statement, 1) else { continue }
+            if String(cString: namePointer) == "app_id" { return true }
+        }
+
+        return false
     }
 
     private func execute(sql: String) throws {

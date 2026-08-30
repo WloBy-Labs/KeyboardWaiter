@@ -49,6 +49,10 @@ final class KeyboardVisualizerWindowController: NSWindowController {
     private let keyboardPageView = NSView()
     private let pointerPageView = NSView()
     private let calendarPageView = NSView()
+    private let appsPageView = NSView()
+    private let appsSectionLabel = NSTextField(labelWithString: "")
+    private let appsScrollView = NSScrollView()
+    private let appBreakdownView = AppBreakdownView()
     private var pointerCardViews: [String: PointerStatCardView] = [:]
     private let pointerTravelCardView = PointerStatCardView(title: AppLocalizer.pointerTravelTitle)
     private var calendarGranularity: CalendarGranularity = .month
@@ -129,6 +133,9 @@ final class KeyboardVisualizerWindowController: NSWindowController {
         let travelUnits = statsStore
             .keyCountMap(in: dateInterval, category: .pointerTravel)
             .countsByKeyID[PointerTravel.keyID] ?? 0
+        appsSectionLabel.stringValue = AppLocalizer.appsSectionTitle
+        appBreakdownView.update(entries: statsStore.appCounts(in: dateInterval))
+
         pointerTravelCardView.setTitle(AppLocalizer.pointerTravelTitle)
         pointerTravelCardView.update(text: AppLocalizer.pointerTravelValue(units: travelUnits))
 
@@ -138,6 +145,7 @@ final class KeyboardVisualizerWindowController: NSWindowController {
     func applyLanguage() {
         window?.title = AppLocalizer.inputActivityWindowTitle
         pointerSectionLabel.stringValue = AppLocalizer.pointerSectionTitle
+        appsSectionLabel.stringValue = AppLocalizer.appsSectionTitle
         calendarSectionLabel.stringValue = AppLocalizer.calendarSectionTitle
         calendarTodayButton.title = AppLocalizer.currentPeriodAction
         scopeLabel.stringValue = AppLocalizer.rangeLabel
@@ -290,6 +298,17 @@ final class KeyboardVisualizerWindowController: NSWindowController {
         pointerPageView.translatesAutoresizingMaskIntoConstraints = false
         calendarPageView.translatesAutoresizingMaskIntoConstraints = false
 
+        appsPageView.translatesAutoresizingMaskIntoConstraints = false
+        appsSectionLabel.translatesAutoresizingMaskIntoConstraints = false
+        appsSectionLabel.font = NSFont.systemFont(ofSize: 14, weight: .bold)
+        appsSectionLabel.textColor = NSColor(calibratedRed: 0.28, green: 0.25, blue: 0.18, alpha: 1.0)
+
+        appsScrollView.translatesAutoresizingMaskIntoConstraints = false
+        appsScrollView.hasVerticalScroller = true
+        appsScrollView.drawsBackground = false
+        appsScrollView.documentView = appBreakdownView
+        appBreakdownView.translatesAutoresizingMaskIntoConstraints = false
+
         keyboardScrollView.translatesAutoresizingMaskIntoConstraints = false
         keyboardScrollView.borderType = .noBorder
         keyboardScrollView.hasVerticalScroller = true
@@ -305,6 +324,9 @@ final class KeyboardVisualizerWindowController: NSWindowController {
         rootView.addSubview(keyboardPageView)
         rootView.addSubview(pointerPageView)
         rootView.addSubview(calendarPageView)
+        rootView.addSubview(appsPageView)
+        appsPageView.addSubview(appsSectionLabel)
+        appsPageView.addSubview(appsScrollView)
 
         headerPanel.addSubview(totalLabel)
         headerPanel.addSubview(subtitleLabel)
@@ -368,6 +390,21 @@ final class KeyboardVisualizerWindowController: NSWindowController {
             pointerPageView.trailingAnchor.constraint(equalTo: keyboardPageView.trailingAnchor),
             pointerPageView.bottomAnchor.constraint(equalTo: keyboardPageView.bottomAnchor),
 
+            appsPageView.topAnchor.constraint(equalTo: keyboardPageView.topAnchor),
+            appsPageView.leadingAnchor.constraint(equalTo: keyboardPageView.leadingAnchor),
+            appsPageView.trailingAnchor.constraint(equalTo: keyboardPageView.trailingAnchor),
+            appsPageView.bottomAnchor.constraint(equalTo: keyboardPageView.bottomAnchor),
+
+            appsSectionLabel.topAnchor.constraint(equalTo: appsPageView.topAnchor, constant: 6),
+            appsSectionLabel.leadingAnchor.constraint(equalTo: appsPageView.leadingAnchor, constant: 6),
+
+            appsScrollView.topAnchor.constraint(equalTo: appsSectionLabel.bottomAnchor, constant: 10),
+            appsScrollView.leadingAnchor.constraint(equalTo: appsPageView.leadingAnchor, constant: 6),
+            appsScrollView.trailingAnchor.constraint(equalTo: appsPageView.trailingAnchor, constant: -6),
+            appsScrollView.bottomAnchor.constraint(equalTo: appsPageView.bottomAnchor, constant: -6),
+
+            appBreakdownView.widthAnchor.constraint(equalTo: appsScrollView.widthAnchor),
+
             calendarPageView.topAnchor.constraint(equalTo: keyboardPageView.topAnchor),
             calendarPageView.leadingAnchor.constraint(equalTo: keyboardPageView.leadingAnchor),
             calendarPageView.trailingAnchor.constraint(equalTo: keyboardPageView.trailingAnchor),
@@ -427,7 +464,12 @@ final class KeyboardVisualizerWindowController: NSWindowController {
     }
 
     private func reloadPageTitles() {
-        let titles = [AppLocalizer.keyboardPageTitle, AppLocalizer.pointerPageTitle, AppLocalizer.calendarPageTitle]
+        let titles = [
+            AppLocalizer.keyboardPageTitle,
+            AppLocalizer.pointerPageTitle,
+            AppLocalizer.appsPageTitle,
+            AppLocalizer.calendarPageTitle
+        ]
         pageControl.segmentCount = titles.count
 
         for (index, title) in titles.enumerated() {
@@ -440,7 +482,8 @@ final class KeyboardVisualizerWindowController: NSWindowController {
     private func applySelectedPage() {
         keyboardPageView.isHidden = selectedPageIndex != 0
         pointerPageView.isHidden = selectedPageIndex != 1
-        calendarPageView.isHidden = selectedPageIndex != 2
+        appsPageView.isHidden = selectedPageIndex != 2
+        calendarPageView.isHidden = selectedPageIndex != 3
     }
 
     private func reloadCalendarGranularityTitles() {
