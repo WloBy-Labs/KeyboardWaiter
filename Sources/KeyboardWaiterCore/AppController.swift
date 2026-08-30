@@ -15,6 +15,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var refreshTimer: Timer?
     private var keyboardWindowController: KeyboardVisualizerWindowController?
+    private var settingsWindowController: SettingsWindowController?
     private var hasShownConsentAlertOnLaunch = false
     private var hasShownPermissionAlert = false
     private var monitoringEnabled: Bool
@@ -174,6 +175,18 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         alert.runModal()
     }
 
+    @objc private func openSettings(_ sender: Any?) {
+        if settingsWindowController == nil {
+            let controller = SettingsWindowController()
+            controller.onMotionIdleGapChange = { [weak self] milliseconds in
+                self?.keyCaptureService.updateMotionIdleGap(TimeInterval(milliseconds) / 1000)
+            }
+            settingsWindowController = controller
+        }
+
+        settingsWindowController?.showAndActivate()
+    }
+
     @objc private func openKeyboardView(_ sender: Any?) {
         if keyboardWindowController == nil {
             keyboardWindowController = KeyboardVisualizerWindowController(statsStore: statsStore)
@@ -208,6 +221,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         rebuildMenu()
         refreshTitle()
         keyboardWindowController?.applyLanguage()
+        settingsWindowController?.applyLanguage()
     }
 
     @objc private func resetStatistics(_ sender: Any?) {
@@ -335,6 +349,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         menu.addItem(.separator())
         addLanguageMenu()
         addActionItem(AppLocalizer.openInputView, action: #selector(openKeyboardView(_:)))
+        addActionItem(AppLocalizer.settingsMenuTitle, action: #selector(openSettings(_:)), keyEquivalent: ",")
         addActionItem(monitoringEnabled ? AppLocalizer.stopMonitoring : AppLocalizer.startMonitoring, action: #selector(toggleMonitoring(_:)))
         addActionItem(AppLocalizer.openPrivacySettings, action: #selector(openPrivacySettings(_:)))
         addActionItem(AppLocalizer.privacyAndData, action: #selector(showPrivacySummary(_:)))

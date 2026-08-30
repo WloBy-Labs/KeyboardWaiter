@@ -3,12 +3,22 @@ import XCTest
 
 final class PointerMotionCoalescerTests: XCTestCase {
     func testFirstEventCounts() {
-        var coalescer = PointerMotionCoalescer(idleGap: 0.35)
+        var coalescer = PointerMotionCoalescer(idleGap: 0.2)
         XCTAssertTrue(coalescer.shouldCount(.move, at: 100))
     }
 
+    func testIdleGapIsLiveAdjustable() {
+        var coalescer = PointerMotionCoalescer(idleGap: 0.2)
+        XCTAssertTrue(coalescer.shouldCount(.move, at: 100))
+        XCTAssertTrue(coalescer.shouldCount(.move, at: 100.3))
+
+        coalescer.idleGap = 1.0
+        XCTAssertFalse(coalescer.shouldCount(.move, at: 100.6))
+        XCTAssertTrue(coalescer.shouldCount(.move, at: 101.7))
+    }
+
     func testContinuousStreamCountsOnce() {
-        var coalescer = PointerMotionCoalescer(idleGap: 0.35)
+        var coalescer = PointerMotionCoalescer(idleGap: 0.2)
         XCTAssertTrue(coalescer.shouldCount(.move, at: 100))
 
         var time = 100.0
@@ -19,30 +29,21 @@ final class PointerMotionCoalescerTests: XCTestCase {
     }
 
     func testNewStrokeAfterIdleGap() {
-        var coalescer = PointerMotionCoalescer(idleGap: 0.35)
+        var coalescer = PointerMotionCoalescer(idleGap: 0.2)
         XCTAssertTrue(coalescer.shouldCount(.move, at: 100))
-        XCTAssertFalse(coalescer.shouldCount(.move, at: 100.3))
-        XCTAssertTrue(coalescer.shouldCount(.move, at: 100.7))
+        XCTAssertFalse(coalescer.shouldCount(.move, at: 100.15))
+        XCTAssertTrue(coalescer.shouldCount(.move, at: 100.5))
     }
 
     func testActivitiesTrackedIndependently() {
-        var coalescer = PointerMotionCoalescer(idleGap: 0.35)
+        var coalescer = PointerMotionCoalescer(idleGap: 0.2)
         XCTAssertTrue(coalescer.shouldCount(.move, at: 100))
         XCTAssertTrue(coalescer.shouldCount(.drag, at: 100.01))
         XCTAssertFalse(coalescer.shouldCount(.move, at: 100.02))
     }
 
-    func testDefaultIdleGap() {
-        XCTAssertEqual(PointerMotionCoalescer.defaultIdleGap, 0.4, accuracy: 0.0001)
-
-        var coalescer = PointerMotionCoalescer()
-        XCTAssertTrue(coalescer.shouldCount(.move, at: 100))
-        XCTAssertFalse(coalescer.shouldCount(.move, at: 100.3))
-        XCTAssertTrue(coalescer.shouldCount(.move, at: 100.8))
-    }
-
     func testResetStartsNewStroke() {
-        var coalescer = PointerMotionCoalescer(idleGap: 0.35)
+        var coalescer = PointerMotionCoalescer(idleGap: 0.2)
         XCTAssertTrue(coalescer.shouldCount(.move, at: 100))
         coalescer.reset()
         XCTAssertTrue(coalescer.shouldCount(.move, at: 100.01))

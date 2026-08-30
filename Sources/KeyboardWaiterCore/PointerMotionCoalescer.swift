@@ -1,14 +1,15 @@
 import Foundation
 
-/// 指针移动/拖拽是每秒上百次的连续事件流。这里按空闲间隔把它们切成"一次滑动"：
-/// 同一种活动两次事件的间隔超过 idleGap 时，才算作新的一次操作。
+/// 指针移动是每秒上百次的连续事件流，而且没有任何"这一笔开始了"的信号。
+/// 这里按空闲间隔把它切成"一次滑动"：静止超过 idleGap 之后的下一个事件才算新的一笔。
+/// 只用于纯移动——点击、拖拽、滚动都有确定的起止事件，各自精确计数。
 public struct PointerMotionCoalescer {
-    public static let defaultIdleGap: TimeInterval = 0.4
+    /// 间隔可以在设置里改，改完立即生效，已有的计时状态不受影响。
+    public var idleGap: TimeInterval
 
-    private let idleGap: TimeInterval
     private var lastEventTimes: [PointerActivity: TimeInterval] = [:]
 
-    public init(idleGap: TimeInterval = PointerMotionCoalescer.defaultIdleGap) {
+    public init(idleGap: TimeInterval) {
         self.idleGap = idleGap
     }
 

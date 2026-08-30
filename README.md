@@ -48,7 +48,7 @@ This path works with the macOS Command Line Tools that are available in the curr
 The app runs as a menu bar utility. The menu bar title shows today's keyboard total.
 Use the menu item `Open Input View` to open a visual window with a keyboard heatmap, mouse/trackpad counters, and a year/month/day calendar grid.
 The menu also shows the packaged app version and build timestamp so you can confirm which build is running.
-The menu includes a `Language` switch. English is the default; Chinese can be enabled at runtime.
+The menu includes a `Settings...` item (also `Cmd+,`) for the pointer move stroke gap, and a `Language` switch. English is the default; Chinese can be enabled at runtime.
 The app now asks for explicit monitoring consent before enabling global input counting.
 Use `Export Statistics...` and `Import Statistics...` to move aggregated hourly counts between machines. Import supports merge and replace modes.
 
@@ -57,8 +57,11 @@ Use `Export Statistics...` and `Import Statistics...` to move aggregated hourly 
 The codebase is now being aligned with a sandboxed Mac App Store build:
 
 - keyboard plus pointer monitoring both use `CGEventTap`
-- pointer monitoring covers clicks, cursor moves, drags, and scrolling in all four directions;
-  continuous moves/drags are collapsed into one count per stroke (0.4s idle gap)
+- pointer monitoring covers clicks, cursor moves, drags, and scrolling in all four directions
+- clicks, drags and scroll gestures have exact start/end events and are counted precisely
+  (one drag per press-drag-release cycle); only cursor movement lacks such a signal, so a new
+  stroke is counted after the pointer has been still for the configurable gap (200ms default,
+  `Settings...` in the menu bar)
 - a `Pointer Travel` card adds up how far the cursor moved; it is stored under a separate
   `mt_` key prefix so distance never mixes into the keyboard/pointer action totals
 - monitoring starts only after explicit in-app consent

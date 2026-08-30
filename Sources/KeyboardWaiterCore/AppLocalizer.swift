@@ -519,6 +519,84 @@ public enum AppLocalizer {
         }
     }
 
+    static var settingsMenuTitle: String {
+        switch language {
+        case .english:
+            return "Settings..."
+        case .simplifiedChinese:
+            return "设置…"
+        }
+    }
+
+    static var settingsWindowTitle: String {
+        switch language {
+        case .english:
+            return "KeyboardWaiter Settings"
+        case .simplifiedChinese:
+            return "KeyboardWaiter 设置"
+        }
+    }
+
+    static var settingsPointerSectionTitle: String {
+        switch language {
+        case .english:
+            return "Mouse & Trackpad"
+        case .simplifiedChinese:
+            return "鼠标与触控板"
+        }
+    }
+
+    static var motionIdleGapLabel: String {
+        switch language {
+        case .english:
+            return "Move stroke gap"
+        case .simplifiedChinese:
+            return "移动分笔间隔"
+        }
+    }
+
+    static var millisecondsUnit: String {
+        switch language {
+        case .english:
+            return "ms"
+        case .simplifiedChinese:
+            return "毫秒"
+        }
+    }
+
+    static var motionIdleGapHelp: String {
+        switch language {
+        case .english:
+            return "Cursor movement has no start or end signal, so a new \"Pointer Move\" is counted "
+                + "only after the pointer has been still for this long. Smaller values count more "
+                + "strokes; larger values merge nearby movements into one."
+        case .simplifiedChinese:
+            return "指针移动没有开始和结束信号，只能靠停顿分笔：静止超过这个时间之后的下一次移动，"
+                + "才算新的一次「指针移动」。值越小记得越细，值越大越容易把连着的两次滑动并成一次。"
+        }
+    }
+
+    static var exactCountingNote: String {
+        switch language {
+        case .english:
+            return "Clicks, drags and scroll gestures have exact start and end events and are counted "
+                + "precisely — this setting does not affect them. Pointer Travel measures distance and "
+                + "is not affected either."
+        case .simplifiedChinese:
+            return "点击、拖拽和滚动手势都有确定的起止事件，是精确计数的，不受此设置影响；"
+                + "「指针行程」统计的是距离，同样不受影响。"
+        }
+    }
+
+    static func restoreDefaultAction(milliseconds: Int) -> String {
+        switch language {
+        case .english:
+            return "Restore default (\(milliseconds) ms)"
+        case .simplifiedChinese:
+            return "恢复默认（\(milliseconds) 毫秒）"
+        }
+    }
+
     static var pointerTravelTitle: String {
         switch language {
         case .english:
