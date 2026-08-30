@@ -4,6 +4,7 @@ import Foundation
 public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let resetConfirmationPhrase = "DELETE"
     private static let automaticPermissionRequestBuildKey = "keyboard_waiter.permission_request.build"
+    private static let windowRefreshInterval: TimeInterval = 0.1
     private static let topKeysExpandedKey = "keyboard_waiter.menu.top_keys_expanded"
     private static let trendExpandedKey = "keyboard_waiter.menu.trend_expanded"
 
@@ -21,6 +22,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private var monitoringEnabled: Bool
     private var topKeysExpanded: Bool
     private var trendExpanded: Bool
+    private var cachedPermissionStatus: PermissionStatus
+    private var lastStatusBarTitle: String?
+    private var isWindowRefreshScheduled = false
     private var todayTotalCache: Int
     private var todayPointerTotalCache: Int
     private var currentDayStart: Date
@@ -29,6 +33,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let resolvedStore = try statsStore ?? StatsStore()
         self.statsStore = resolvedStore
         self.monitoringEnabled = MonitoringConsentStore.hasConsent
+        self.cachedPermissionStatus = .needsAccess
         self.topKeysExpanded = UserDefaults.standard.bool(forKey: Self.topKeysExpandedKey)
         self.trendExpanded = UserDefaults.standard.bool(forKey: Self.trendExpandedKey)
         self.todayTotalCache = resolvedStore.todayTotal(category: .keyboard)
@@ -36,6 +41,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         self.currentDayStart = Calendar.current.startOfDay(for: Date())
 
         super.init()
+
+        refreshPermissionStatus()
 
         keyCaptureService.onKeyCapture = { [weak self] descriptor in
             self?.handleKeyCapture(descriptor)
@@ -288,7 +295,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     private func refreshMonitoringState() {
-        let permissionStatus = permissionService.currentStatus()
+        let permissionStatus = refreshPermissionStatus()
 
         if monitoringEnabled && permissionStatus == .granted {
             if !keyCaptureService.isRunning {
@@ -302,7 +309,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func rebuildMenu() {
         menu.removeAllItems()
 
-        let permissionStatus = permissionService.currentStatus()
+        let permissionStatus = refreshPermissionStatus()
         addDisabledItem(AppLocalizer.menuTodayTotal(todayTotalCache))
         addDisabledItem(AppLocalizer.menuMonitoring(monitoringStatusText(permissionStatus: permissionStatus)))
         addDisabledItem(AppLocalizer.menuPermission(permissionStatus.description))
@@ -371,11 +378,24 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     private func refreshTitle() {
-        statusItem.button?.title = AppLocalizer.statusBarTitle(
+        // 每个事件都会走这里。权限状态读缓存：CGPreflightListenEventAccess() 实测约 7.8ms，
+        // 放在事件路径上等于每次按键都停 7.8 毫秒。
+        let title = AppLocalizer.statusBarTitle(
             keyboardTotalText: CountFormatter.abbreviated(todayTotalCache),
             pointerTotalText: CountFormatter.abbreviated(todayPointerTotalCache),
-            hasPermission: permissionService.currentStatus() == .granted
+            hasPermission: cachedPermissionStatus == .granted
         )
+
+        guard title != lastStatusBarTitle else { return }
+        lastStatusBarTitle = title
+        statusItem.button?.title = title
+    }
+
+    /// 真正去问系统要权限状态，只在慢路径上调用（定时器、菜单打开、启动授权流程）。
+    @discardableResult
+    private func refreshPermissionStatus() -> PermissionStatus {
+        cachedPermissionStatus = permissionService.currentStatus()
+        return cachedPermissionStatus
     }
 
     private func refreshKeyboardWindow() {
@@ -383,7 +403,22 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             return
         }
 
-        keyboardWindowController.refreshData()
+        // refreshData() 要重查统计库并重建日历，实测约 7ms。窗口开着时事件可能每秒来几十个，
+        // 合并成最多 10Hz 刷新，肉眼看不出差别。
+        guard !isWindowRefreshScheduled else { return }
+        isWindowRefreshScheduled = true
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.windowRefreshInterval) { [weak self] in
+            guard let self else { return }
+
+            self.isWindowRefreshScheduled = false
+
+            guard let controller = self.keyboardWindowController, controller.window?.isVisible == true else {
+                return
+            }
+
+            controller.refreshData()
+        }
     }
 
     private func confirmResetRisk() -> Bool {
@@ -446,7 +481,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     private func showPermissionAlertIfNeeded() {
         guard !hasShownPermissionAlert else { return }
-        guard permissionService.currentStatus() != .granted else { return }
+        guard refreshPermissionStatus() != .granted else { return }
 
         hasShownPermissionAlert = true
 
@@ -474,7 +509,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     private func requestAccessOnLaunchIfNeeded(forcePromptForCurrentBuild: Bool = false) {
-        guard permissionService.currentStatus() != .granted else { return }
+        guard refreshPermissionStatus() != .granted else { return }
         guard monitoringEnabled else { return }
 
         let currentBuildToken = permissionRequestBuildToken
@@ -484,7 +519,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             defaults.set(currentBuildToken, forKey: Self.automaticPermissionRequestBuildKey)
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                guard let self, self.permissionService.currentStatus() != .granted else { return }
+                guard let self, self.refreshPermissionStatus() != .granted else { return }
 
                 _ = self.permissionService.requestAccess()
 
