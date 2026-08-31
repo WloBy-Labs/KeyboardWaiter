@@ -45,6 +45,27 @@ Monitoring** in System Settings. Grant it under
 This path works with the macOS Command Line Tools that are available in the current environment.
 `swift build` / `swift test` also work.
 
+### Desktop habitat (optional)
+
+`KeyboardWaiterPet` is a separate target that turns your usage into a small collection: species
+are discovered from real behaviour (a run of late nights, a day inside a single app, a
+delete-heavy day) and live in a habitat window on the desktop. `Open Field Guide...` in the menu
+shows what has been found, and how close the rest are — their conditions stay hidden until they
+show up.
+
+It depends on the core; the core does not know it exists. Removing `Sources/KeyboardWaiterPet`,
+its target in `Package.swift`, and the assembly lines in `main.swift` leaves a working app.
+
+## Local development install
+
+```bash
+./scripts/install_local.sh
+```
+
+Builds, packages with the signing identity from `signing.env`, and updates
+`/Applications/KeyboardWaiter.app` in place. Keeping the identity and the bundle path stable is
+what preserves the Input Monitoring grant across rebuilds.
+
 The app runs as a menu bar utility. The menu bar title shows today's keyboard total.
 Use the menu item `Open Input View` to open a visual window with a keyboard heatmap, mouse/trackpad counters, a per-app breakdown of where the input happened, and a year/month/day calendar grid.
 The menu also shows the packaged app version and build timestamp so you can confirm which build is running.

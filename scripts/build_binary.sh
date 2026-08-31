@@ -29,6 +29,7 @@ fi
 swiftc \
     "${SWIFTC_FLAGS[@]}" \
     "$ROOT_DIR"/Sources/KeyboardWaiterCore/*.swift \
+    "$ROOT_DIR"/Sources/KeyboardWaiterPet/*.swift \
     "$ROOT_DIR"/Sources/KeyboardWaiterApp/main.swift \
     -o "$BUILD_DIR/KeyboardWaiter"
 
