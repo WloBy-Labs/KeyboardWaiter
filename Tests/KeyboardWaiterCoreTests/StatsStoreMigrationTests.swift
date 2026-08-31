@@ -39,7 +39,8 @@ final class StatsStoreMigrationTests: XCTestCase {
     }
 
     func testLegacyRowsSurviveMigrationAsUnknownApp() throws {
-        let now = Date()
+        // 固定在当天中午，否则接近零点运行时 bucket - 3600 会落到前一天
+        let now = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
         let bucket = HourlyBucket.bucketStart(for: now)
         try writeLegacyDatabase(rows: [
             (bucket, "kc_a", 120),
@@ -60,7 +61,8 @@ final class StatsStoreMigrationTests: XCTestCase {
     }
 
     func testMigratedStoreAcceptsNewAppScopedWrites() throws {
-        let now = Date()
+        // 固定在当天中午，否则接近零点运行时 bucket - 3600 会落到前一天
+        let now = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
         let bucket = HourlyBucket.bucketStart(for: now)
         try writeLegacyDatabase(rows: [(bucket, "kc_a", 10)])
 

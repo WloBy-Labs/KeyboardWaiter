@@ -12,7 +12,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private let permissionService = PermissionService()
     private let keyCaptureService = KeyCaptureService()
     private let frontmostAppTracker = FrontmostAppTracker()
-    private let statsStore: StatsStore
+    /// App 层组装功能模块时需要拿到它。Core 自己不认识任何模块。
+    public let statsStore: StatsStore
+    private var features: [AppFeature] = []
     private let menu = NSMenu()
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var refreshTimer: Timer?
@@ -66,6 +68,19 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
+    /// 由 App 层在启动前注册可插拔模块。Core 只按协议调用，不知道具体是什么。
+    public func register(feature: AppFeature) {
+        features.append(feature)
+        feature.featureApplyLanguage(Self.featureLanguage())
+    }
+
+    private static func featureLanguage() -> AppFeatureLanguage {
+        switch AppLanguageStore.current {
+        case .english: return .english
+        case .simplifiedChinese: return .simplifiedChinese
+        }
+    }
+
     public func applicationDidFinishLaunching(_ notification: Notification) {
         SingleInstanceCoordinator.terminateOtherInstances()
 
@@ -82,6 +97,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
+        features.forEach { $0.featureWillTerminate() }
         refreshTimer?.invalidate()
         keyCaptureService.stop()
     }
@@ -230,6 +246,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         refreshTitle()
         keyboardWindowController?.applyLanguage()
         settingsWindowController?.applyLanguage()
+        features.forEach { $0.featureApplyLanguage(Self.featureLanguage()) }
     }
 
     @objc private func resetStatistics(_ sender: Any?) {
@@ -281,6 +298,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     private func refreshPeriodicState() {
+        features.forEach { $0.featureDidRefresh() }
         frontmostAppTracker.refresh()
         rolloverIfNeeded(referenceDate: Date())
         refreshMonitoringState()
@@ -363,6 +381,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
             for point in trendSeries.suffix(6) {
                 addDisabledItem("  \(TrendFormatter.hourLabel(for: point.bucketStart)): \(point.total)")
+            }
+        }
+
+        if !features.isEmpty {
+            menu.addItem(.separator())
+            for feature in features {
+                for item in feature.featureMenuItems() {
+                    menu.addItem(item)
+                }
             }
         }
 

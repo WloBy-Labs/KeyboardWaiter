@@ -44,6 +44,28 @@ public struct HourCount: Equatable {
     public let total: Int
 }
 
+/// 按自然日汇总的输入情况。宠物的成长只看这些聚合量，不看原始事件。
+public struct DailyInputSummary: Equatable {
+    /// 当地时区的自然日起点（unix 秒）
+    public let dayStart: Int64
+    /// 当天按过的不同按键种类数——乱敲一个键刷不出来
+    public let distinctKeys: Int
+    /// 当天有输入的小时数，衡量分布而不是总量
+    public let activeHours: Int
+    public let keyboardCount: Int
+    public let pointerCount: Int
+
+    public var total: Int { keyboardCount + pointerCount }
+
+    public init(dayStart: Int64, distinctKeys: Int, activeHours: Int, keyboardCount: Int, pointerCount: Int) {
+        self.dayStart = dayStart
+        self.distinctKeys = distinctKeys
+        self.activeHours = activeHours
+        self.keyboardCount = keyboardCount
+        self.pointerCount = pointerCount
+    }
+}
+
 /// 一个应用在某段时间里的输入量。
 public struct AppCount: Equatable {
     public let appID: String
@@ -330,6 +352,50 @@ public final class StatsStore {
         }
 
         return KeyCountMap(countsByKeyID: countsByKeyID, total: total)
+    }
+
+    /// 按自然日汇总。时区偏移由调用方传入，SQLite 里没有本地时区的概念。
+    public func dailyInputSummaries(timeZoneOffset: Int = TimeZone.current.secondsFromGMT()) -> [DailyInputSummary] {
+        queue.sync {
+            var statement: OpaquePointer?
+            let sql = """
+            SELECT ((hour_bucket + ?) / 86400) AS day_index,
+                   COUNT(DISTINCT CASE WHEN key_id LIKE 'kc_%' THEN key_id END) AS distinct_keys,
+                   COUNT(DISTINCT hour_bucket) AS active_hours,
+                   SUM(CASE WHEN key_id LIKE 'kc_%' THEN count ELSE 0 END) AS keyboard_count,
+                   SUM(CASE WHEN key_id LIKE '\(PointerActivity.prefix)%' THEN count ELSE 0 END) AS pointer_count
+            FROM hourly_counts
+            WHERE \(metricExclusionClause)
+            GROUP BY day_index
+            HAVING keyboard_count + pointer_count > 0
+            ORDER BY day_index ASC;
+            """
+
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+                return []
+            }
+
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_int64(statement, 1, Int64(timeZoneOffset))
+
+            var result: [DailyInputSummary] = []
+
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let dayIndex = sqlite3_column_int64(statement, 0)
+                result.append(
+                    DailyInputSummary(
+                        dayStart: dayIndex * 86_400 - Int64(timeZoneOffset),
+                        distinctKeys: Int(sqlite3_column_int64(statement, 1)),
+                        activeHours: Int(sqlite3_column_int64(statement, 2)),
+                        keyboardCount: Int(sqlite3_column_int64(statement, 3)),
+                        pointerCount: Int(sqlite3_column_int64(statement, 4))
+                    )
+                )
+            }
+
+            return result
+        }
     }
 
     /// 按应用汇总键盘和指针的次数，多到少排序。位移指标照例排除在外。
